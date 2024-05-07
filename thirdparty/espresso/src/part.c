@@ -1,51 +1,20 @@
-// Filename: part.c
-
 #include "mincov_int.h"
 
-static int visit_row(sm_matrix *A, sm_row *prow, int *rows_visited, int *cols_visited);
-static int visit_col(sm_matrix *A, sm_col *pcol, int *rows_visited, int *cols_visited);
 
 static void
-copy_row(sm_matrix *A, sm_row *prow)
+copy_row(register sm_matrix *A, register sm_row *prow)
 {
-    sm_element *p;
+    register sm_element *p;
 
-    for (p = prow->first_col; p != 0; p = p->next_col) {
-        sm_insert(A, p->row_num, p->col_num);
+    for(p = prow->first_col; p != 0; p = p->next_col) {
+	(void) sm_insert(A, p->row_num, p->col_num);
     }
 }
 
-static int
-visit_row(sm_matrix *A, sm_row *prow, int *rows_visited, int *cols_visited)
-{
-    sm_element *p;
-    sm_col *pcol;
-
-    if (! prow->flag) {
-        prow->flag = 1;
-        (*rows_visited)++;
-        if (*rows_visited == A->nrows) {
-            return 1;
-        }
-        for (p = prow->first_col; p != 0; p = p->next_col) {
-            pcol = sm_get_col(A, p->col_num);
-            if (! pcol->flag) {
-                if (visit_col(A, pcol, rows_visited, cols_visited)) {
-                    return 1;
-                }
-            }
-        }
-    }
-
-    return 0;
-}
+static int visit_row(sm_matrix *A, sm_row *prow, int *rows_visited, int *cols_visited);
 
 static int
-visit_col(A, pcol, rows_visited, cols_visited)
-sm_matrix *A;
-sm_col *pcol;
-int *rows_visited;
-int *cols_visited;
+visit_col(sm_matrix *A, sm_col *pcol, int *rows_visited, int *cols_visited)
 {
     sm_element *p;
     sm_row *prow;
@@ -68,43 +37,66 @@ int *cols_visited;
     return 0;
 }
 
+static int
+visit_row(sm_matrix *A, sm_row *prow, int *rows_visited, int *cols_visited)
+{
+    sm_element *p;
+    sm_col *pcol;
+
+    if (! prow->flag) {
+	prow->flag = 1;
+	(*rows_visited)++;
+	if (*rows_visited == A->nrows) {
+	    return 1;
+	}
+	for(p = prow->first_col; p != 0; p = p->next_col) {
+	    pcol = sm_get_col(A, p->col_num);
+	    if (! pcol->flag) {
+		if (visit_col(A, pcol, rows_visited, cols_visited)) {
+		    return 1;
+		}
+	    }
+	}
+    }
+    return 0;
+}
+
+
+
 int
 sm_block_partition(sm_matrix *A, sm_matrix **L, sm_matrix **R)
 {
     int cols_visited, rows_visited;
-    sm_row *prow;
-    sm_col *pcol;
+    register sm_row *prow;
+    register sm_col *pcol;
 
-    // Avoid the trivial case
+    /* Avoid the trivial case */
     if (A->nrows == 0) {
-        return 0;
+	return 0;
     }
 
-    // Reset the visited flags for each row and column
-    for (prow = A->first_row; prow != 0; prow = prow->next_row) {
-        prow->flag = 0;
+    /* Reset the visited flags for each row and column */
+    for(prow = A->first_row; prow != 0; prow = prow->next_row) {
+	prow->flag = 0;
     }
-    for (pcol = A->first_col; pcol != 0; pcol = pcol->next_col) {
-        pcol->flag = 0;
+    for(pcol = A->first_col; pcol != 0; pcol = pcol->next_col) {
+	pcol->flag = 0;
     }
 
     cols_visited = rows_visited = 0;
     if (visit_row(A, A->first_row, &rows_visited, &cols_visited)) {
-        // we found all of the rows
-        return 0;
-    }
-    else {
-        *L = sm_alloc();
-        *R = sm_alloc();
-        for (prow = A->first_row; prow != 0; prow = prow->next_row) {
-            if (prow->flag) {
-                copy_row(*L, prow);
-            }
-            else {
-                copy_row(*R, prow);
-            }
-        }
-        return 1;
+	/* we found all of the rows */
+	return 0;
+    } else {
+	*L = sm_alloc();
+	*R = sm_alloc();
+	for(prow = A->first_row; prow != 0; prow = prow->next_row) {
+	    if (prow->flag) {
+		copy_row(*L, prow);
+	    } else {
+		copy_row(*R, prow);
+	    }
+	}
+	return 1;
     }
 }
-

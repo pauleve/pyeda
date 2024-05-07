@@ -1,261 +1,223 @@
-//
-// sharp.c -- perform sharp, disjoint sharp, and intersection
-//
+/*
+    sharp.c -- perform sharp, disjoint sharp, and intersection
+*/
 
 #include "espresso.h"
 
-// cv_sharp -- form the sharp product between two covers
-//
-//
+long start_time;
 
-set_family_t *
-cv_sharp(set_family_t *A, set_family_t *B)
+
+/* cv_sharp -- form the sharp product between two covers */
+pcover cv_sharp(pset_family A, pset_family B)
 {
-    set *last, *p;
-    set_family_t *T;
+    pcube last, p;
+    pcover T;
 
-    T = sf_new(0, CUBE.size);
+    T = new_cover(0);
     foreach_set(A, last, p)
-        T = sf_union(T, cb_sharp(p, B));
-
+	T = sf_union(T, cb_sharp(p, B));
     return T;
 }
 
-// cb_sharp -- form the sharp product between a cube and a cover
-//
-//
 
-set_family_t *
-cb_sharp(set *c, set_family_t *T)
+/* cb_sharp -- form the sharp product between a cube and a cover */
+pcover cb_sharp(pset c, pset_family T)
 {
     if (T->count == 0) {
-        T = sf_addset(sf_new(1, CUBE.size), c);
+	T = sf_addset(new_cover(1), c);
+    } else {
+	start_time = ptime();
+	T = cb_recur_sharp(c, T, 0, T->count-1, 0);
     }
-    else {
-        T = cb_recur_sharp(c, T, 0, T->count-1, 0);
-    }
-
     return T;
 }
 
-// recursive formulation to provide balanced merging
-//
-//
 
-set_family_t *
-cb_recur_sharp(set *c, set_family_t *T, int first, int last, int level)
+/* recursive formulation to provide balanced merging */
+pcover cb_recur_sharp(pset c, pset_family T, int first, int last, int level)
 {
-    set_family_t *temp, *left, *right;
+    pcover temp, left, right;
     int middle;
 
     if (first == last) {
-        temp = sharp(c, GETSET(T, first));
+	temp = sharp(c, GETSET(T, first));
+    } else {
+	middle = (first + last) / 2;
+	left = cb_recur_sharp(c, T, first, middle, level+1);
+	right = cb_recur_sharp(c, T, middle+1, last, level+1);
+	temp = cv_intersect(left, right);
+	if ((debug & SHARP) && level < 4) {
+	    printf("# SHARP[%d]: %4d = %4d x %4d, time = %s\n",
+		level, temp->count, left->count, right->count,
+		print_time(ptime() - start_time));
+	    (void) fflush(stdout);
+	}
+	free_cover(left);
+	free_cover(right);
     }
-    else {
-        middle = (first + last) / 2;
-        left = cb_recur_sharp(c, T, first, middle, level+1);
-        right = cb_recur_sharp(c, T, middle+1, last, level+1);
-        temp = cv_intersect(left, right);
-        if ((debug & SHARP) && level < 4) {
-            printf("# SHARP[%d]: %4d = %4d x %4d\n", level, temp->count, left->count, right->count);
-            fflush(stdout);
-        }
-        sf_free(left);
-        sf_free(right);
-    }
-
     return temp;
 }
 
-// sharp -- form the sharp product between two cubes
-//
-//
 
-set_family_t *
-sharp(set *a, set *b)
+/* sharp -- form the sharp product between two cubes */
+pcover sharp(pset a, pset b)
 {
-    int var;
-    set *d = CUBE.temp[0], *temp = CUBE.temp[1], *temp1 = CUBE.temp[2];
-    set_family_t *r = sf_new(CUBE.num_vars, CUBE.size);
+    register int var;
+    register pcube d=cube.temp[0], temp=cube.temp[1], temp1=cube.temp[2];
+    pcover r = new_cover(cube.num_vars);
 
     if (cdist0(a, b)) {
-        set_diff(d, a, b);
-        for (var = 0; var < CUBE.num_vars; var++) {
-            if (! setp_empty(set_and(temp, d, CUBE.var_mask[var]))) {
-                set_diff(temp1, a, CUBE.var_mask[var]);
-                set_or(GETSET(r, r->count++), temp, temp1);
-            }
-        }
+	set_diff(d, a, b);
+	for(var = 0; var < cube.num_vars; var++) {
+	    if (! setp_empty(set_and(temp, d, cube.var_mask[var]))) {
+		set_diff(temp1, a, cube.var_mask[var]);
+		set_or(GETSET(r, r->count++), temp, temp1);
+	    }
+	}
+    } else {
+	r = sf_addset(r, a);
     }
-    else {
-        r = sf_addset(r, a);
-    }
-
     return r;
 }
-
-set_family_t *
-make_disjoint(set_family_t *A)
+
+pcover make_disjoint(pset_family A)
 {
-    set_family_t *R, *new;
-    set *last, *p;
+    pcover R, new;
+    register pset last, p;
 
-    R = sf_new(0, CUBE.size);
+    R = new_cover(0);
     foreach_set(A, last, p) {
-        new = cb_dsharp(p, R);
-        R = sf_append(R, new);
+	new = cb_dsharp(p, R);
+	R = sf_append(R, new);
     }
-
     return R;
 }
 
-// cv_dsharp -- disjoint-sharp product between two covers
-//
-//
 
-set_family_t *
-cv_dsharp(set_family_t *A, set_family_t *B)
+/* cv_dsharp -- disjoint-sharp product between two covers */
+pcover cv_dsharp(pset_family A, pset_family B)
 {
-    set *last, *p;
-    set_family_t *T;
+    register pcube last, p;
+    pcover T;
 
-    T = sf_new(0, CUBE.size);
+    T = new_cover(0);
     foreach_set(A, last, p) {
-        T = sf_union(T, cb_dsharp(p, B));
+	T = sf_union(T, cb_dsharp(p, B));
     }
-
     return T;
 }
 
-// cb1_dsharp -- disjoint-sharp product between a cover and a cube
-//
-//
 
-set_family_t *
-cb1_dsharp(set_family_t *T, set *c)
+/* cb1_dsharp -- disjoint-sharp product between a cover and a cube */
+pcover cb1_dsharp(pset_family T, pset c)
 {
-    set *last, *p;
-    set_family_t *R;
+    pcube last, p;
+    pcover R;
 
-    R = sf_new(T->count, CUBE.size);
+    R = new_cover(T->count);
     foreach_set(T, last, p) {
-        R = sf_union(R, dsharp(p, c));
+	R = sf_union(R, dsharp(p, c));
     }
-
     return R;
 }
 
-// cb_dsharp -- disjoint-sharp product between a cube and a cover
-//
-//
 
-set_family_t *
-cb_dsharp(set *c, set_family_t *T)
+/* cb_dsharp -- disjoint-sharp product between a cube and a cover */
+pcover cb_dsharp(pset c, pset_family T)
 {
-    set *last, *p;
-    set_family_t *Y, *Y1;
+    pcube last, p;
+    pcover Y, Y1;
 
     if (T->count == 0) {
-        Y = sf_addset(sf_new(1, CUBE.size), c);
+	Y = sf_addset(new_cover(1), c);
+    } else {
+	Y = new_cover(T->count);
+	set_copy(GETSET(Y,Y->count++), c);
+	foreach_set(T, last, p) {
+	    Y1 = cb1_dsharp(Y, p);
+	    free_cover(Y);
+	    Y = Y1;
+	}
     }
-    else {
-        Y = sf_new(T->count, CUBE.size);
-        set_copy(GETSET(Y,Y->count++), c);
-        foreach_set(T, last, p) {
-            Y1 = cb1_dsharp(Y, p);
-            sf_free(Y);
-            Y = Y1;
-        }
-    }
-
     return Y;
 }
 
-// dsharp -- form the disjoint-sharp product between two cubes
-//
-//
 
-set_family_t *
-dsharp(set *a, set *b)
+/* dsharp -- form the disjoint-sharp product between two cubes */
+pcover dsharp(pset a, pset b)
 {
-    set *mask, *diff, *and, *temp, *temp1 = CUBE.temp[0];
+    register pcube mask, diff, and, temp, temp1 = cube.temp[0];
     int var;
-    set_family_t *r;
+    pcover r;
 
-    r = sf_new(CUBE.num_vars, CUBE.size);
+    r = new_cover(cube.num_vars);
 
     if (cdist0(a, b)) {
-        diff = set_diff(set_new(CUBE.size), a, b);
-        and = set_and(set_new(CUBE.size), a, b);
-        mask = set_new(CUBE.size);
-        for (var = 0; var < CUBE.num_vars; var++) {
-            // check if position var of "a and not b" is not empty
-            if (! setp_disjoint(diff, CUBE.var_mask[var])) {
-                // coordinate var equals the difference between a and b
-                temp = GETSET(r, r->count++);
-                set_and(temp, diff, CUBE.var_mask[var]);
+	diff = set_diff(new_cube(), a, b);
+	and = set_and(new_cube(), a, b);
+	mask = new_cube();
+	for(var = 0; var < cube.num_vars; var++) {
+	    /* check if position var of "a and not b" is not empty */
+	    if (! setp_disjoint(diff, cube.var_mask[var])) {
 
-                // coordinates 0 ... var-1 equal the intersection
-                set_and(temp1, and, mask);
-                set_or(temp, temp, temp1);
+		/* coordinate var equals the difference between a and b */
+		temp = GETSET(r, r->count++);
+		(void) set_and(temp, diff, cube.var_mask[var]);
 
-                // coordinates var+1 .. CUBE.num_vars equal a
-                set_or(mask, mask, CUBE.var_mask[var]);
-                set_diff(temp1, a, mask);
-                set_or(temp, temp, temp1);
-            }
-        }
-        set_free(diff);
-        set_free(and);
-        set_free(mask);
+		/* coordinates 0 ... var-1 equal the intersection */
+		INLINEset_and(temp1, and, mask);
+		INLINEset_or(temp, temp, temp1);
+
+		/* coordinates var+1 .. cube.num_vars equal a */
+		set_or(mask, mask, cube.var_mask[var]);
+		INLINEset_diff(temp1, a, mask);
+		INLINEset_or(temp, temp, temp1);
+	    }
+	}
+	free_cube(diff);
+	free_cube(and);
+	free_cube(mask);
+    } else {
+	r = sf_addset(r, a);
     }
-    else {
-        r = sf_addset(r, a);
-    }
-
     return r;
 }
+
+/* cv_intersect -- form the intersection of two covers */
 
-// cv_intersect -- form the intersection of two covers
-//
-//
+#define MAGIC 500               /* save 500 cubes before containment */
 
-#define MAGIC 500   // save 500 cubes before containment
-
-set_family_t *
-cv_intersect(set_family_t *A, set_family_t *B)
+pcover cv_intersect(pset_family A, pset_family B)
 {
-    set *pi, *pj, *lasti, *lastj, *pt;
-    set_family_t *T, *Tsave = NULL;
+    register pcube pi, pj, lasti, lastj, pt;
+    pcover T, Tsave = NULL;
 
-    // How large should each temporary result cover be ?
-    T = sf_new(MAGIC, CUBE.size);
+    /* How large should each temporary result cover be ? */
+    T = new_cover(MAGIC);
     pt = T->data;
 
-    // Form pairwise intersection of each cube of A with each cube of B
+    /* Form pairwise intersection of each cube of A with each cube of B */
     foreach_set(A, lasti, pi) {
-        foreach_set(B, lastj, pj) {
-            if (cdist0(pi, pj)) {
-                set_and(pt, pi, pj);
-                if (++T->count >= T->capacity) {
-                    if (Tsave == NULL)
-                        Tsave = sf_contain(T);
-                    else
-                        Tsave = sf_union(Tsave, sf_contain(T));
-                    T = sf_new(MAGIC, CUBE.size);
-                    pt = T->data;
-                }
-                else
-                    pt += T->wsize;
-            }
-        }
+	foreach_set(B, lastj, pj) {
+	    if (cdist0(pi, pj)) {
+		(void) set_and(pt, pi, pj);
+		if (++T->count >= T->capacity) {
+		    if (Tsave == NULL)
+			Tsave = sf_contain(T);
+		    else
+			Tsave = sf_union(Tsave, sf_contain(T));
+		    T = new_cover(MAGIC);
+		    pt = T->data;
+		} else
+		    pt += T->wsize;
+	    }
+	}
     }
 
-    if (Tsave == NULL)
-        Tsave = sf_contain(T);
-    else
-        Tsave = sf_union(Tsave, sf_contain(T));
 
+    if (Tsave == NULL)
+	Tsave = sf_contain(T);
+    else
+	Tsave = sf_union(Tsave, sf_contain(T));
     return Tsave;
 }
-

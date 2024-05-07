@@ -42,14 +42,14 @@ _pycov2esprcov(
     int val, maxval;
     int savef, saved, saver;
 
-    set *cf, *cd, *cr;
+    pset cf, cd, cr;
 
     PyObject *pyrows, *pyrow, *pyins, *pyouts, *pylong;
 
     /* Read cubes */
-    cf = CUBE.temp[0];
-    cd = CUBE.temp[1];
-    cr = CUBE.temp[2];
+    cf = cube.temp[0];
+    cd = cube.temp[1];
+    cr = cube.temp[2];
 
     pyrows = PyObject_GetIter(cover);
     if (pyrows == NULL)
@@ -72,7 +72,7 @@ _pycov2esprcov(
             Py_DECREF(pyrows);
             goto error;
         }
-        set_clear(cf, CUBE.size);
+        set_clear(cf, cube.size);
         index = 0;
         for (i = 0; i < ninputs; i++) {
             pylong = PySequence_GetItem(pyins, i);
@@ -86,7 +86,7 @@ _pycov2esprcov(
             }
 
             val = PyLong_AsLong(pylong);
-            maxval = (1 << CUBE.part_size[i]) - 1;
+            maxval = (1 << cube.part_size[i]) - 1;
             if (val < 0 || val > maxval) {
                 PyErr_Format(PyExc_ValueError, "expected input in range [0, %d], got: %d", maxval, val);
                 Py_DECREF(pylong);
@@ -96,7 +96,7 @@ _pycov2esprcov(
                 goto error;
             }
 
-            for (j = 0; j < CUBE.part_size[i]; j++, index++) {
+            for (j = 0; j < cube.part_size[i]; j++, index++) {
                 if (val & (1 << j))
                     set_insert(cf, index);
             }
@@ -192,7 +192,7 @@ _esprcov2pycov(int ninputs, int noutputs, set_family_t *F)
 
     PyObject *pyset, *pyimpl, *pyins, *pyouts, *pylong;
 
-    set *last, *p;
+    pset last, p;
 
     pyset = PySet_New(0);
     if (pyset == NULL)
@@ -407,17 +407,17 @@ _espresso(PyObject *self, PyObject *args, PyObject *kwargs)
         goto error;
     }
 
-    /* Initialize global CUBE dimensions */
-    CUBE.num_binary_vars = ninputs;
-    CUBE.num_vars = ninputs + 1;
-    CUBE.part_size = (int *) malloc(CUBE.num_vars * sizeof(int));
-    CUBE.part_size[CUBE.num_vars-1] = noutputs;
+    /* Initialize global cube dimensions */
+    cube.num_binary_vars = ninputs;
+    cube.num_vars = ninputs + 1;
+    cube.part_size = (int *) malloc(cube.num_vars * sizeof(int));
+    cube.part_size[cube.num_vars-1] = noutputs;
     cube_setup();
 
     /* Initialize F^on, F^dc, F^off */
-    F = sf_new(10, CUBE.size);
-    D = sf_new(10, CUBE.size);
-    R = sf_new(10, CUBE.size);
+    F = sf_new(10, cube.size);
+    D = sf_new(10, cube.size);
+    R = sf_new(10, cube.size);
 
     if (!_pycov2esprcov(F, D, R, ninputs, noutputs, cover, intype))
         goto free_espresso;
@@ -430,7 +430,7 @@ _espresso(PyObject *self, PyObject *args, PyObject *kwargs)
         //set_family_t *X;
         sf_free(D);
         D = complement(cube2list(F, R));
-        //X = d1merge(sf_join(F, R), CUBE.num_vars - 1);
+        //X = d1merge(sf_join(F, R), cube.num_vars - 1);
         //D = complement(cube1list(X));
         //sf_free(X);
     }
@@ -459,7 +459,7 @@ free_espresso:
     sf_cleanup();
     sm_cleanup();
     cube_setdown();
-    free(CUBE.part_size);
+    free(cube.part_size);
 
 error:
     return pyret;

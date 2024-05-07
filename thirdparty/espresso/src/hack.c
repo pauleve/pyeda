@@ -1,22 +1,18 @@
-// Filename: hack.c
-
-#include <string.h>
-
 #include "espresso.h"
 
-void map_dcset(PLA_t *PLA)
+void map_dcset(pPLA PLA)
 {
     int var, i;
-    set_family_t *Tplus, *Tminus, *Tplusbar, *Tminusbar;
-    set_family_t *newf, *term1, *term2, *dcset, *dcsetbar;
-    set *cplus, *cminus, *last, *p;
+    pcover Tplus, Tminus, Tplusbar, Tminusbar;
+    pcover newf, term1, term2, dcset, dcsetbar;
+    pcube cplus, cminus, last, p;
 
     if (PLA->label == NIL(char *) || PLA->label[0] == NIL(char))
 	return;
 
     /* try to find a binary variable named "DONT_CARE" */
     var = -1;
-    for(i = 0; i < CUBE.num_binary_vars * 2; i++) {
+    for(i = 0; i < cube.num_binary_vars * 2; i++) {
 	if (strncmp(PLA->label[i], "DONT_CARE", 9) == 0 ||
 	  strncmp(PLA->label[i], "DONTCARE", 8) == 0 ||
 	  strncmp(PLA->label[i], "dont_care", 9) == 0 ||
@@ -30,29 +26,31 @@ void map_dcset(PLA_t *PLA)
     }
 
     /* form the cofactor cubes for the don't-care variable */
-    cplus = set_save(CUBE.fullset);
-    cminus = set_save(CUBE.fullset);
+    cplus = set_save(cube.fullset);
+    cminus = set_save(cube.fullset);
     set_remove(cplus, var*2);
     set_remove(cminus, var*2 + 1);
 
     /* form the don't-care set */
-    simp_comp(cofactor(cube1list(PLA->F), cplus), &Tplus, &Tplusbar);
-    simp_comp(cofactor(cube1list(PLA->F), cminus), &Tminus, &Tminusbar);
-    term1 = cv_intersect(Tplus, Tminusbar);
-    term2 = cv_intersect(Tminus, Tplusbar);
-    dcset = sf_union(term1, term2);
-    simp_comp(cube1list(dcset), &PLA->D, &dcsetbar);
-    newf = cv_intersect(PLA->F, dcsetbar);
-    sf_free(PLA->F);
+    EXEC(simp_comp(cofactor(cube1list(PLA->F), cplus), &Tplus, &Tplusbar),
+	"simpcomp+", Tplus);
+    EXEC(simp_comp(cofactor(cube1list(PLA->F), cminus), &Tminus, &Tminusbar),
+	"simpcomp-", Tminus);
+    EXEC(term1 = cv_intersect(Tplus, Tminusbar), "term1    ", term1);
+    EXEC(term2 = cv_intersect(Tminus, Tplusbar), "term2    ", term2);
+    EXEC(dcset = sf_union(term1, term2), "union     ", dcset);
+    EXEC(simp_comp(cube1list(dcset), &PLA->D, &dcsetbar), "simplify", PLA->D);
+    EXEC(newf = cv_intersect(PLA->F, dcsetbar), "separate  ", PLA->F);
+    free_cover(PLA->F);
     PLA->F = newf;
-    sf_free(Tplus);
-    sf_free(Tminus);
-    sf_free(Tplusbar);
-    sf_free(Tminusbar);
-    sf_free(dcsetbar);
+    free_cover(Tplus);
+    free_cover(Tminus);
+    free_cover(Tplusbar);
+    free_cover(Tminusbar);
+    free_cover(dcsetbar);
 
     /* remove any cubes dependent on the DONT_CARE variable */
-    sf_active(PLA->F);
+    (void) sf_active(PLA->F);
     foreach_set(PLA->F, last, p) {
 	if (! is_in_set(p, var*2) || ! is_in_set(p, var*2+1)) {
 	    RESET(p, ACTIVE);
@@ -61,24 +59,24 @@ void map_dcset(PLA_t *PLA)
     PLA->F = sf_inactive(PLA->F);
 
     /* resize the cube and delete the don't-care variable */
-    cube_setdown();
-    for(i = 2*var+2; i < CUBE.size; i++) {
+    setdown_cube();
+    for(i = 2*var+2; i < cube.size; i++) {
 	PLA->label[i-2] = PLA->label[i];
     }
-    for(i = var+1; i < CUBE.num_vars; i++) {
-	CUBE.part_size[i-1] = CUBE.part_size[i];
+    for(i = var+1; i < cube.num_vars; i++) {
+	cube.part_size[i-1] = cube.part_size[i];
     }
-    CUBE.num_binary_vars--;
-    CUBE.num_vars--;
+    cube.num_binary_vars--;
+    cube.num_vars--;
     cube_setup();
     PLA->F = sf_delc(PLA->F, 2*var, 2*var+1);
     PLA->D = sf_delc(PLA->D, 2*var, 2*var+1);
 }
-
-void map_output_symbolic(PLA_t *PLA)
+
+void map_output_symbolic(pPLA PLA)
 {
-    set_family_t *newF, *newD;
-    set *compress;
+    pset_family newF, newD;
+    pset compress;
     symbolic_t *p1;
     symbolic_list_t *p2;
     int i, bit, tot_size, base, old_size;
@@ -93,9 +91,9 @@ void map_output_symbolic(PLA_t *PLA)
     tot_size = 0;
     for(p1=PLA->symbolic_output; p1!=NIL(symbolic_t); p1=p1->next) {
 	for(p2=p1->symbolic_list; p2!=NIL(symbolic_list_t); p2=p2->next) {
-	    if (p2->pos<0 || p2->pos>=CUBE.part_size[CUBE.output]) {
+	    if (p2->pos<0 || p2->pos>=cube.part_size[cube.output]) {
 		fatal("symbolic-output index out of range");
-/*	    } else if (p2->variable != CUBE.output) {
+/*	    } else if (p2->variable != cube.output) {
 		fatal("symbolic-output label must be an output");*/
 	    }
 	}
@@ -110,33 +108,37 @@ void map_output_symbolic(PLA_t *PLA)
     }
 
     /* resize the cube structure -- add enough for the one-hot outputs */
-    old_size = CUBE.size;
-    CUBE.part_size[CUBE.output] += tot_size;
-    cube_setdown();
+    old_size = cube.size;
+    cube.part_size[cube.output] += tot_size;
+    setdown_cube();
     cube_setup();
 
     /* insert space in the output part for the one-hot output */
-    base = CUBE.first_part[CUBE.output];
+    base = cube.first_part[cube.output];
     PLA->F = sf_addcol(PLA->F, base, tot_size);
     PLA->D = sf_addcol(PLA->D, base, tot_size);
     PLA->R = sf_addcol(PLA->R, base, tot_size);
 
     /* do the real work */
     for(p1=PLA->symbolic_output; p1!=NIL(symbolic_t); p1=p1->next) {
-	newF = sf_new(100, CUBE.size);
-	newD = sf_new(100, CUBE.size);
+	newF = new_cover(100);
+	newD = new_cover(100);
 	find_inputs(NIL(set_family_t), PLA, p1->symbolic_list, base, 0,
 			    &newF, &newD);
-
-	sf_free(PLA->F);
+/*
+ *  Not sure what this means
+	find_dc_inputs(PLA, p1->symbolic_list,
+			    base, 1 << p1->symbolic_list_length, &newF, &newD);
+ */
+	free_cover(PLA->F);
 	PLA->F = newF;
 /*
  *  retain OLD DC-set -- but we've lost the don't-care arc information
  *  (it defaults to branch to the zero state)
-	sf_free(PLA->D);
+	free_cover(PLA->D);
 	PLA->D = newD;
  */
-	sf_free(newD);
+	free_cover(newD);
 	base += 1 << p1->symbolic_list_length;
     }
 
@@ -144,39 +146,40 @@ void map_output_symbolic(PLA_t *PLA)
     compress = set_full(newF->sf_size);
     for(p1=PLA->symbolic_output; p1!=NIL(symbolic_t); p1=p1->next) {
 	for(p2=p1->symbolic_list; p2!=NIL(symbolic_list_t); p2=p2->next) {
-	    bit = CUBE.first_part[CUBE.output] + p2->pos;
+	    bit = cube.first_part[cube.output] + p2->pos;
 	    set_remove(compress, bit);
 	}
     }
-    CUBE.part_size[CUBE.output] -= newF->sf_size - set_ord(compress);
-    cube_setdown();
+    cube.part_size[cube.output] -= newF->sf_size - set_ord(compress);
+    setdown_cube();
     cube_setup();
     PLA->F = sf_compress(PLA->F, compress);
     PLA->D = sf_compress(PLA->D, compress);
-    if (CUBE.size != PLA->F->sf_size) fatal("error");
+    if (cube.size != PLA->F->sf_size) fatal("error");
 
     /* Quick minimization */
     PLA->F = sf_contain(PLA->F);
     PLA->D = sf_contain(PLA->D);
-    for(i = 0; i < CUBE.num_vars; i++) {
+    for(i = 0; i < cube.num_vars; i++) {
 	PLA->F = d1merge(PLA->F, i);
 	PLA->D = d1merge(PLA->D, i);
     }
     PLA->F = sf_contain(PLA->F);
     PLA->D = sf_contain(PLA->D);
 
-    sf_free(PLA->R);
-    PLA->R = sf_new(0, CUBE.size);
+    free_cover(PLA->R);
+    PLA->R = new_cover(0);
 
     symbolic_hack_labels(PLA, PLA->symbolic_output,
-			    compress, CUBE.size, old_size, tot_size);
+			    compress, cube.size, old_size, tot_size);
     set_free(compress);
 }
 
-void find_inputs(set_family_t *A, PLA_t *PLA, symbolic_list_t *list, int base, int value, set_family_t **newF, set_family_t **newD)
+
+void find_inputs(pset_family A, pPLA PLA, symbolic_list_t *list, int base, int value, pset_family *newF, pset_family *newD)
 {
-    set_family_t *S, *S1;
-    set *last, *p;
+    pcover S, S1;
+    register pset last, p;
 
     /*
      *  A represents th 'input' values for which the outputs assume
@@ -201,39 +204,80 @@ void find_inputs(set_family_t *A, PLA_t *PLA, symbolic_list_t *list, int base, i
 
     } else {
 	/* intersect and recur with the OFF-set */
-	S = cof_output(PLA->R, CUBE.first_part[CUBE.output] + list->pos);
+	S = cof_output(PLA->R, cube.first_part[cube.output] + list->pos);
 	if (A != NIL(set_family_t)) {
 	    S1 = cv_intersect(A, S);
-	    sf_free(S);
+	    free_cover(S);
 	    S = S1;
 	}
 	find_inputs(S, PLA, list->next, base, value*2, newF, newD);
-	sf_free(S);
+	free_cover(S);
 
 	/* intersect and recur with the ON-set */
-	S = cof_output(PLA->F, CUBE.first_part[CUBE.output] + list->pos);
+	S = cof_output(PLA->F, cube.first_part[cube.output] + list->pos);
 	if (A != NIL(set_family_t)) {
 	    S1 = cv_intersect(A, S);
-	    sf_free(S);
+	    free_cover(S);
 	    S = S1;
 	}
 	find_inputs(S, PLA, list->next, base, value*2 + 1, newF, newD);
-	sf_free(S);
+	free_cover(S);
     }
 }
 
-void map_symbolic(PLA_t *PLA)
+
+#if 0
+find_dc_inputs(PLA, list, base, maxval, newF, newD)
+pPLA PLA;
+symbolic_list_t *list;
+int base, maxval;
+pcover *newF, *newD;
+{
+    pcover A, S, S1;
+    symbolic_list_t *p2;
+    register pset p, last;
+    register int i;
+
+    /* painfully find the points for which the symbolic output is dc */
+    A = NIL(set_family_t);
+    for(p2=list; p2!=NIL(symbolic_list_t); p2=p2->next) {
+	S = cof_output(PLA->D, cube.first_part[cube.output] + p2->pos);
+	if (A == NIL(set_family_t)) {
+	    A = S;
+	} else {
+	    S1 = cv_intersect(A, S);
+	    free_cover(S);
+	    free_cover(A);
+	    A = S1;
+	}
+    }
+
+    S = cv_intersect(A, PLA->F);
+    *newF = sf_append(*newF, S);
+
+    S = cv_intersect(A, PLA->D);
+    foreach_set(S, last, p) {
+	for(i = base; i < base + maxval; i++) {
+	    set_insert(p, i);
+	}
+    }
+    *newD = sf_append(*newD, S);
+    free_cover(A);
+}
+#endif
+
+void map_symbolic(pPLA PLA)
 {
     symbolic_t *p1;
     symbolic_list_t *p2;
     int var, base, num_vars, num_binary_vars, *new_part_size;
     int new_size, size_added, num_deleted_vars, num_added_vars, newvar;
-    set *compress;
+    pset compress;
 
     /* Verify legal values are in the symbolic lists */
     for(p1 = PLA->symbolic; p1 != NIL(symbolic_t); p1 = p1->next) {
 	for(p2=p1->symbolic_list; p2!=NIL(symbolic_list_t); p2=p2->next) {
-	    if (p2->variable  < 0 || p2->variable >= CUBE.num_binary_vars) {
+	    if (p2->variable  < 0 || p2->variable >= cube.num_binary_vars) {
 		fatal(".symbolic requires binary variables");
 	    }
 	}
@@ -261,23 +305,23 @@ void map_symbolic(PLA_t *PLA)
     num_deleted_vars = ((PLA->F->sf_size + size_added) - set_ord(compress))/2;
 
     /* compute the new cube constants */
-    num_vars = CUBE.num_vars - num_deleted_vars + num_added_vars;
-    num_binary_vars = CUBE.num_binary_vars - num_deleted_vars;
-    new_size = CUBE.size - num_deleted_vars*2 + size_added;
+    num_vars = cube.num_vars - num_deleted_vars + num_added_vars;
+    num_binary_vars = cube.num_binary_vars - num_deleted_vars;
+    new_size = cube.size - num_deleted_vars*2 + size_added;
     new_part_size = ALLOC(int, num_vars);
-    new_part_size[num_vars-1] = CUBE.part_size[CUBE.num_vars-1];
-    for(var = CUBE.num_binary_vars; var < CUBE.num_vars-1; var++) {
-	new_part_size[var-num_deleted_vars] = CUBE.part_size[var];
+    new_part_size[num_vars-1] = cube.part_size[cube.num_vars-1];
+    for(var = cube.num_binary_vars; var < cube.num_vars-1; var++) {
+	new_part_size[var-num_deleted_vars] = cube.part_size[var];
     }
 
     /* re-size the covers, opening room for the new mv variables */
-    base = CUBE.first_part[CUBE.output];
+    base = cube.first_part[cube.output];
     PLA->F = sf_addcol(PLA->F, base, size_added);
     PLA->D = sf_addcol(PLA->D, base, size_added);
     PLA->R = sf_addcol(PLA->R, base, size_added);
 
     /* compute the values for the new mv variables */
-    newvar = (CUBE.num_vars - 1) - num_deleted_vars;
+    newvar = (cube.num_vars - 1) - num_deleted_vars;
     for(p1 = PLA->symbolic; p1 != NIL(symbolic_t); p1 = p1->next) {
 	PLA->F = map_symbolic_cover(PLA->F, p1->symbolic_list, base);
 	PLA->D = map_symbolic_cover(PLA->D, p1->symbolic_list, base);
@@ -292,31 +336,32 @@ void map_symbolic(PLA_t *PLA)
     PLA->R = sf_compress(PLA->R, compress);
 
     symbolic_hack_labels(PLA, PLA->symbolic, compress,
-		new_size, CUBE.size, size_added);
-    cube_setdown();
-    FREE(CUBE.part_size);
-    CUBE.num_vars = num_vars;
-    CUBE.num_binary_vars = num_binary_vars;
-    CUBE.part_size = new_part_size;
+		new_size, cube.size, size_added);
+    setdown_cube();
+    FREE(cube.part_size);
+    cube.num_vars = num_vars;
+    cube.num_binary_vars = num_binary_vars;
+    cube.part_size = new_part_size;
     cube_setup();
     set_free(compress);
 }
 
-set_family_t *map_symbolic_cover(set_family_t *T, symbolic_list_t *list, int base)
+
+pcover map_symbolic_cover(pset_family T, symbolic_list_t *list, int base)
 {
-    set *last, *p;
+    pset last, p;
     foreach_set(T, last, p) {
-        form_bitvector(p, base, 0, list);
+	form_bitvector(p, base, 0, list);
     }
     return T;
 }
 
-void form_bitvector(
-    set *p,     /* old cube, looking at binary variables */
-    int base,   /* where in mv cube the new variable starts */
-    int value,  /* current value for this recursion */
-    symbolic_list_t *list   /* current place in the symbolic list */
-)
+
+void form_bitvector(pset p, int base, int value, symbolic_list_t *list)
+       			/* old cube, looking at binary variables */
+         		/* where in mv cube the new variable starts */
+          		/* current value for this recursion */
+                      	/* current place in the symbolic list */
 {
     if (list == NIL(symbolic_list_t)) {
 	set_insert(p, base + value);
@@ -338,8 +383,8 @@ void form_bitvector(
     }
 }
 
-void
-symbolic_hack_labels(PLA_t *PLA, symbolic_t *list, set *compress, int new_size, int old_size, int size_added)
+
+void symbolic_hack_labels(pPLA PLA, symbolic_t *list, pset compress, int new_size, int old_size, int size_added)
 {
     int i, base;
     char **oldlabel;
@@ -356,7 +401,7 @@ symbolic_hack_labels(PLA_t *PLA, symbolic_t *list, set *compress, int new_size, 
 
     /* copy the binary variable labels and unchanged mv variable labels */
     base = 0;
-    for(i = 0; i < CUBE.first_part[CUBE.output]; i++) {
+    for(i = 0; i < cube.first_part[cube.output]; i++) {
 	if (is_in_set(compress, i)) {
 	    PLA->label[base++] = oldlabel[i];
 	} else {
@@ -372,7 +417,7 @@ symbolic_hack_labels(PLA_t *PLA, symbolic_t *list, set *compress, int new_size, 
 	for(i = 0; i < (1 << p1->symbolic_list_length); i++) {
 	    if (p3 == NIL(symbolic_label_t)) {
 		PLA->label[base+i] = ALLOC(char, 10);
-		sprintf(PLA->label[base+i], "X%d", i);
+		(void) sprintf(PLA->label[base+i], "X%d", i);
 	    } else {
 		PLA->label[base+i] = p3->label;
 		p3 = p3->next;
@@ -382,7 +427,7 @@ symbolic_hack_labels(PLA_t *PLA, symbolic_t *list, set *compress, int new_size, 
     }
 
     /* copy the labels for the binary outputs which remain */
-    for(i = CUBE.first_part[CUBE.output]; i < old_size; i++) {
+    for(i = cube.first_part[cube.output]; i < old_size; i++) {
 	if (is_in_set(compress, i + size_added)) {
 	    PLA->label[base++] = oldlabel[i];
 	} else {
@@ -393,26 +438,25 @@ symbolic_hack_labels(PLA_t *PLA, symbolic_t *list, set *compress, int new_size, 
     }
     FREE(oldlabel);
 }
-
-static set_family_t *
-fsm_simplify(set_family_t *F)
+
+static pcover fsm_simplify(pset_family F)
 {
-    set_family_t *D, *R;
-    D = sf_new(0, CUBE.size);
+    pcover D, R;
+    D = new_cover(0);
     R = complement(cube1list(F));
     F = espresso(F, D, R);
-    sf_free(D);
-    sf_free(R);
+    free_cover(D);
+    free_cover(R);
     return F;
 }
 
-void
-disassemble_fsm(PLA_t *PLA)
+
+void disassemble_fsm(pPLA PLA, int verbose_mode)
 {
     int nin, nstates, nout;
     int before, after, present_state, next_state, i, j;
-    set *next_state_mask, *present_state_mask, *state_mask, *p, *p1, *last;
-    set_family_t *go_nowhere, *F, *tF;
+    pcube next_state_mask, present_state_mask, state_mask, p, p1, last;
+    pcover go_nowhere, F, tF;
 
     /* We make the DISGUSTING assumption that the first 'n' outputs have
      *  been created by .symbolic-output, and represent a one-hot encoding
@@ -420,7 +464,7 @@ disassemble_fsm(PLA_t *PLA)
      * valued variable (i.e., before the outputs
      */
 
-    if (CUBE.num_vars - CUBE.num_binary_vars != 2) {
+    if (cube.num_vars - cube.num_binary_vars != 2) {
 	fprintf(stderr,
 	"use .symbolic and .symbolic-output to specify\n");
 	fprintf(stderr,
@@ -428,9 +472,9 @@ disassemble_fsm(PLA_t *PLA)
 	fatal("disassemble_pla: need two multiple-valued variables\n");
     }
 
-    nin = CUBE.num_binary_vars;
-    nstates = CUBE.part_size[CUBE.num_binary_vars];
-    nout = CUBE.part_size[CUBE.num_vars - 1];
+    nin = cube.num_binary_vars;
+    nstates = cube.part_size[cube.num_binary_vars];
+    nout = cube.part_size[cube.num_vars - 1];
     if (nout < nstates) {
 	fprintf(stderr,
 	    "use .symbolic and .symbolic-output to specify\n");
@@ -440,28 +484,28 @@ disassemble_fsm(PLA_t *PLA)
     }
 
 
-    present_state = CUBE.first_part[CUBE.num_binary_vars];
-    present_state_mask = set_new(CUBE.size);
+    present_state = cube.first_part[cube.num_binary_vars];
+    present_state_mask = new_cube();
     for(i = 0; i < nstates; i++) {
 	set_insert(present_state_mask, i + present_state);
     }
 
-    next_state = CUBE.first_part[CUBE.num_binary_vars+1];
-    next_state_mask = set_new(CUBE.size);
+    next_state = cube.first_part[cube.num_binary_vars+1];
+    next_state_mask = new_cube();
     for(i = 0; i < nstates; i++) {
 	set_insert(next_state_mask, i + next_state);
     }
 
-    state_mask = set_or(set_new(CUBE.size), next_state_mask, present_state_mask);
+    state_mask = set_or(new_cube(), next_state_mask, present_state_mask);
 
-    F = sf_new(10, CUBE.size);
+    F = new_cover(10);
 
 
     /*
      *  check for arcs which go from ANY state to state #i
      */
     for(i = 0; i < nstates; i++) {
-	tF = sf_new(10, CUBE.size);
+	tF = new_cover(10);
 	foreach_set(PLA->F, last, p) {
 	    if (setp_implies(present_state_mask, p)) { /* from any state ! */
 		if (is_in_set(p, next_state + i)) {
@@ -478,6 +522,10 @@ disassemble_fsm(PLA_t *PLA)
 	    }
 	    after = tF->count;
 	    F = sf_append(F, tF);
+	    if (verbose_mode) {
+		printf("# state EVERY to %d, before=%d after=%d\n",
+			i, before, after);
+	    }
 	}
     }
 
@@ -486,7 +534,7 @@ disassemble_fsm(PLA_t *PLA)
      *  some 'arcs' may NOT have a next state -- handle these
      *  we must unravel the present state part
      */
-    go_nowhere = sf_new(10, CUBE.size);
+    go_nowhere = new_cover(10);
     foreach_set(PLA->F, last, p) {
 	if (setp_disjoint(p, next_state_mask)) { /* no next state !! */
 	    go_nowhere = sf_addset(go_nowhere, p);
@@ -494,16 +542,20 @@ disassemble_fsm(PLA_t *PLA)
     }
     before = go_nowhere->count;
     go_nowhere = unravel_range(go_nowhere,
-				CUBE.num_binary_vars, CUBE.num_binary_vars);
+				cube.num_binary_vars, cube.num_binary_vars);
     after = go_nowhere->count;
     F = sf_append(F, go_nowhere);
+    if (verbose_mode) {
+	printf("# state ANY to NOWHERE, before=%d after=%d\n", before, after);
+    }
+
 
     /*
      *  minimize cover for all arcs from state #i to state #j
      */
     for(i = 0; i < nstates; i++) {
 	for(j = 0; j < nstates; j++) {
-	    tF = sf_new(10, CUBE.size);
+	    tF = new_cover(10);
 	    foreach_set(PLA->F, last, p) {
 		/* not EVERY state */
 		if (! setp_implies(present_state_mask, p)) {
@@ -528,32 +580,35 @@ disassemble_fsm(PLA_t *PLA)
 		}
 		after = tF->count;
 		F = sf_append(F, tF);
+		if (verbose_mode) {
+		    printf("# state %d to %d, before=%d after=%d\n",
+			    i, j, before, after);
+		}
 	    }
 	}
     }
 
 
-    set_free(state_mask);
-    set_free(present_state_mask);
-    set_free(next_state_mask);
+    free_cube(state_mask);
+    free_cube(present_state_mask);
+    free_cube(next_state_mask);
 
-    sf_free(PLA->F);
+    free_cover(PLA->F);
     PLA->F = F;
-    sf_free(PLA->D);
-    PLA->D = sf_new(0, CUBE.size);
+    free_cover(PLA->D);
+    PLA->D = new_cover(0);
 
-    cube_setdown();
-    FREE(CUBE.part_size);
-    CUBE.num_binary_vars = nin;
-    CUBE.num_vars = nin + 3;
-    CUBE.part_size = ALLOC(int, CUBE.num_vars);
-    CUBE.part_size[CUBE.num_binary_vars] = nstates;
-    CUBE.part_size[CUBE.num_binary_vars+1] = nstates;
-    CUBE.part_size[CUBE.num_binary_vars+2] = nout - nstates;
+    setdown_cube();
+    FREE(cube.part_size);
+    cube.num_binary_vars = nin;
+    cube.num_vars = nin + 3;
+    cube.part_size = ALLOC(int, cube.num_vars);
+    cube.part_size[cube.num_binary_vars] = nstates;
+    cube.part_size[cube.num_binary_vars+1] = nstates;
+    cube.part_size[cube.num_binary_vars+2] = nout - nstates;
     cube_setup();
 
     foreach_set(PLA->F, last, p) {
 	kiss_print_cube(stdout, PLA, p, "~1");
     }
 }
-
